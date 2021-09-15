@@ -1,0 +1,1656 @@
+<div class="container">
+
+  <h1>Multiplayer Connect 4</h1>
+
+</div>
+
+<div class="side-by-side">
+
+  <canvas id="game-canvas"></canvas>
+
+  <div class="side-by-side-item chat-bar">
+
+    <div class="chat" id="game-chat"></div>
+
+    <menu class="emote-menu" id="emote-menu">
+
+      <button class="emote happy-emote">&#x1F64B;</button>
+      <button class="emote happy-emote">&#x1F604;</button>
+      <button class="emote thinking-emote">&#x1F4AD;</button>
+      <button class="emote scared-emote">&#x1F628;</button>
+      <button class="emote sad-emote">&#x1F613;</button>
+      <button class="emote threaten-emote">&#x1F624;</button>
+      <button class="emote congrats-emote">&#x1F64C;</button>
+
+    </menu>
+
+    <div class="chat-input">
+
+      <textarea id="chat-input" placeholder="Talk to your player here."></textarea>
+
+    </div>
+
+  </div>
+
+</div>
+
+<div class="modal" id="join-modal">
+
+  <div class="form-item">
+    <label>Type in your name.</label>
+    <input type="text" id="display-name-input" placeholder="Con4">
+  </div>
+
+  <div class="form-item">
+    <button class="button" id="join-button">Join Game</button>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="modal-overlay"></div>
+
+<style>
+* {
+	box-sizing: border-box;
+}
+
+body {
+	font-family: sans-serif, "Gafata";
+	margin: 0;
+	padding: 0;
+}
+
+.container {
+	border-bottom: 1px solid #eee;
+	padding: 0 0.5em;
+}
+
+#game-canvas {
+	display: block;
+}
+
+.emote {
+	display: inline-block;
+	font-size: 1em;
+	margin-right: 0.5em;
+	border: none;
+	background: none;
+	border-color: #ccc;
+	outline: none;
+	cursor: pointer;
+}
+
+.modal {
+	display: none;
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	background: #111;
+	color: #fff;
+	padding: 1em;
+	transform: translate(-50%, -50%);
+	z-index: 10;
+}
+.modal-overlay {
+	display: none;
+	position: fixed;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	background: rgba(255, 255, 255, 0.8);
+	z-index: 2;
+}
+
+.form-item + .form-item {
+	margin-top: 0.75em;
+}
+.form-item label {
+	display: block;
+	margin-bottom: 0.25em;
+}
+.form-item input {
+	display: block;
+	min-width: 300px;
+	font-size: 1em;
+	padding: 0.25em;
+}
+.form-item input::placeholder {
+	font-weight: 100;
+}
+.form-item .button {
+	background: hsl(200, 100%, 50%);
+	color: #111;
+	border: none;
+	font-size: 1em;
+	padding: 0.5em 0.75em;
+}
+
+.side-by-side {
+	display: flex;
+	margin: 1em auto;
+	padding: 0 1em;
+	min-width: 900px;
+	max-width: 1000px;
+	max-height: 600px;
+}
+.side-by-side .side-by-side-item {
+	flex: 1;
+}
+
+.chat-bar {
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	margin-left: 1em;
+	padding-left: 1em;
+}
+
+#emote-menu {
+	flex: 0 0 3em;
+	background: none;
+	border: 1px solid #ddd;
+	overflow-x: auto;
+	overflow-y: hidden;
+	white-space: nowrap;
+	padding: 0.25em 0.5em;
+	margin: 0;
+}
+
+.chat-bar .chat {
+	flex: 1;
+	overflow-x: hidden;
+	overflow-y: auto;
+}
+
+.chat-bar .chat-input {
+	position: relative;
+	flex: 0 0 100px;
+	background: #eee;
+}
+.chat-bar .chat-input textarea {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	font-size: 1em;
+	border-top: 0;
+	border-color: #eee;
+	padding: 0.25em;
+}
+
+:disabled {
+	background: #ddd;
+}
+
+.message {
+	overflow: hidden;
+}
+.message-sender {
+	font-weight: bold;
+}
+.message p {
+	margin-top: 0.25em;
+}
+
+.player-message p {
+	color: #555;
+}
+
+.server-message {
+	color: #aaa;
+	font-weight: lighter;
+	font-size: 0.85em;
+}
+.server-message .message-sender {
+	display: none;
+}
+</style>
+
+<script>
+function Board(w, h, winAmount) {
+	
+	this.width = w;
+	this.height = h;
+	this.spaces = new Array(w * h);
+	this.winAmount = winAmount;
+	
+	for(var i = 0; i < w * h; i++) this.spaces[i] = 0;
+	
+}
+
+Board.build = function(data) {
+
+	var board = new Board( data.width, data.height, data.winAmount );
+
+	board.spaces = data.spaces;
+
+	return board;
+
+}
+
+Board.prototype.reset = function() {
+	
+	for(var i = 0; i < this.width * this.height; i++) this.spaces[i] = 0;
+	
+}
+
+Board.prototype.getSpace = function(x, y) {
+
+	if(x < 0 || x >= this.width) return 0;
+	if(y < 0 || y >= this.height) return 0;
+	
+	var offset = this.pointOffset(x, y);
+	
+	return this.spaces[offset];
+	
+}
+
+Board.prototype.setSpace = function(x, y, value) {
+	
+	var offset = this.pointOffset(x, y);
+	
+	this.spaces[offset] = value;
+	
+}
+
+Board.prototype.pointOffset = function(x, y) {
+	
+	return y * this.width + x;
+	
+}
+
+Board.prototype.pointToCell = function(px, py) {
+	
+	var cx = Math.floor( px * this.width );
+	var cy = Math.floor( py * this.height );
+	
+	return { x : cx, y : cy };
+	
+}
+
+Board.prototype.place = function(column, value) {
+	
+	for(var y = this.height - 1; y >= 0; y--) {
+	
+		if( this.getSpace(column, y) == 0 ) {
+			
+			this.setSpace(column, y, value);
+			
+			return true;
+			
+		}
+	
+	}
+	
+	return false;
+	
+}
+
+Board.prototype.checkForWin = function(lastPlacedColumn) {
+
+	var x = lastPlacedColumn;
+	var y;
+	var player;
+
+	//
+	// Find out the type and location of the last placed piece
+	//
+	for(y = this.height - 1; y >= 0; y--) {
+
+		player = this.getSpace(x, y);
+
+		if(player != 0) break;
+
+	}
+
+	//
+	// Check each direction around last-placed piece
+	//
+	var checks = [
+		{ x: 1, y: 1, c: 1 },
+		{ x: -1, y: 1, c: 1 },
+		{ x: 1, y: 0, c: 1 },
+		{ x: 0, y: 1, c: 1 }
+	];
+
+	for(var i = 0; i < checks.length; i++) {
+
+		var check = checks[i];
+		var dir = 1;
+		var checkX;
+		var checkY;
+
+		do {
+
+			//
+			// Check in the positive direction
+			//
+			var currentChecks = 1;
+			checkX = x;
+			checkY = y;
+
+			while(currentChecks++ < this.winAmount) {
+
+				checkX += check.x * dir;
+				checkY += check.y * dir;
+
+				var piece  = this.getSpace(checkX, checkY);
+
+				//
+				// We either found an opposing piece, or ran into the edge, so there's no winner this direction
+				//
+				if(piece != player) break;
+
+				//
+				// We found a matching piece, so increment count and see if it's a winner
+				//
+				check.c++;
+
+				if(check.c == this.winAmount) return player;
+
+			}
+
+			//
+			// Reverse the direction
+			//
+			dir *= -1;
+
+		} while(dir != 1);
+
+	}
+
+	//
+	// We never found a winner, so return false
+	//
+	return 0;
+
+}
+
+Board.prototype.bruteForceWinCheck = function() {
+	
+	//
+	// Check rows
+	//
+	for(var row = 0; row < this.height; row++) {
+	
+		var x = 0;
+		var y = row;
+		var inARow = 0;
+		var lastValue = 0;
+		
+		for(var i = 0; i < this.width; i++) {
+			
+			var value = this.getSpace(x + i, y);
+			
+			if(value != lastValue || value == 0) {
+			
+				inARow = 1;
+			
+			}else{
+			
+				inARow++;
+			
+			}
+			
+			if(inARow == this.winAmount) {
+			
+				return value;
+			
+			}
+			
+			if(this.winAmount - inARow > this.width - i - 1) {
+			
+				break;
+			
+			}
+			
+			lastValue = value;
+			
+		}
+		
+	}
+	
+	//
+	// Check columns
+	//
+	for(var col = 0; col < this.width; col++) {
+	
+		var x = col;
+		var y = 0;
+		var inARow = 0;
+		var lastValue = 0;
+		
+		for(var i = 0; i < this.height; i++) {
+			
+			var value = this.getSpace(x, y + i);
+			
+			if(value != lastValue || value == 0) {
+			
+				inARow = 1;
+			
+			}else{
+			
+				inARow++;
+			
+			}
+			
+			if(inARow == this.winAmount) {
+			
+				return value;
+			
+			}
+			
+			if(this.winAmount - inARow > this.height - i - 1) {
+			
+				break;
+			
+			}
+			
+			lastValue = value;
+			
+		}
+	
+	}
+	
+	//
+	// Check downward diagonals
+	//
+	for(i = 0; i < this.width + this.height; i++) {
+	
+		var x, y;
+		var inARow = 0;
+		var lastValue = 0;
+		
+		if(i < this.height) {
+			
+			x = 0;
+			y = this.height - i - 1;
+			
+		}else{
+			
+			x = i - this.height;
+			y = 0;
+			
+		}
+		
+		while(x < this.width && y < this.height) {
+			
+			var value = this.getSpace(x, y);
+			
+			if(value != lastValue || value == 0) {
+			
+				inARow = 1;
+			
+			}else{
+			
+				inARow++;
+			
+			}
+			
+			if(inARow == this.winAmount) {
+			
+				return value;
+			
+			}
+			
+			x++;
+			y++;
+			lastValue = value;
+			
+		}
+	
+	}
+	
+	//
+	// Check upward diagonals
+	//
+	for(i = 0; i < this.width + this.height; i++) {
+	
+		var x, y;
+		var inARow = 0;
+		var lastValue = 0;
+		
+		if(i < this.height) {
+			
+			x = 0;
+			y = i;
+			
+		}else{
+			
+			x = i - this.height;
+			y = this.height - 1;
+			
+		}
+		
+		while(x < this.width && y >= 0) {
+			
+			var value = this.getSpace(x, y);
+			
+			if(value != lastValue || value == 0) {
+			
+				inARow = 1;
+			
+			}else{
+			
+				inARow++;
+			
+			}
+			
+			if(inARow == this.winAmount) {
+			
+				return value;
+			
+			}
+			
+			x++;
+			y--;
+			lastValue = value;
+			
+		}
+	
+	}
+	
+	return false;
+	
+}
+
+if(typeof module != "undefined") module.exports = Board;
+function NetworkMessage(type, data) {
+
+	this.type = type || null;
+	this.data = data || {};
+
+}
+
+NetworkMessage.decode = function(data) {
+
+	try {
+
+		var payload = JSON.parse(data);
+
+		return new NetworkMessage(payload.type, payload.data);
+
+	} catch(e) {
+
+		return new NetworkMessage();
+
+	}
+
+}
+
+NetworkMessage.prototype.encode = function() {
+
+	return JSON.stringify( this );
+
+}
+
+NetworkMessage.prototype.toString = function() {
+
+	return this.encode();
+
+}
+
+if(typeof module != "undefined") module.exports = NetworkMessage;
+function Net(address) {
+
+	this.address = address;
+	this.socket = null;
+	this.listeners = {};
+
+}
+
+Net.prototype.isConnected = function() {
+
+	return this.socket && this.socket.readyState == 1;
+
+}
+
+Net.prototype.connect = function() {
+
+	var self = this;
+
+	this.socket = new WebSocket( this.address, "connect4-protocol" );
+	this.socket.addEventListener("open", this.handleOpenedSocket.bind( this ));
+	this.socket.addEventListener("message", this.handleMessage.bind( this ));
+	this.socket.addEventListener("close", this.handleClosedSocket.bind( this ));
+	this.socket.addEventListener("error", this.handleSocketError.bind( this ));
+
+}
+
+Net.prototype.reconnect = function() {
+
+	var self = this;
+
+	setTimeout(function() {
+
+		self.connect();
+
+	}, 3000);
+
+}
+
+Net.prototype.disconnect = function() {
+
+	if(this.isConnected()) this.socket.close();
+
+}
+
+Net.prototype.handleOpenedSocket = function(openEvent) {
+
+	this.emit("connect");
+
+}
+
+Net.prototype.handleMessage = function(messageEvent) {
+
+	this.emit("message", [ NetworkMessage.decode( messageEvent.data ) ]);
+
+}
+
+Net.prototype.handleClosedSocket = function(closeEvent) {
+
+	this.emit("disconnect");
+
+}
+
+Net.prototype.handleSocketError = function(errorEvent) {
+
+	this.emit("error");
+
+}
+
+Net.prototype.send = function(message) {
+
+	this.socket.send(message);
+
+}
+
+Net.prototype.on = function(event, callback) {
+
+	this.listeners[event] = this.listeners[event] || [];
+
+	this.listeners[event].push(callback);
+
+}
+
+Net.prototype.emit = function(event, params) {
+
+	var listeners = this.listeners[event] || [];
+
+	params = params || [];
+
+	for(var i = 0; i < listeners.length; i++) {
+
+		listeners[i].apply( this, params );
+
+	}
+
+}
+function GameState(game) {
+
+	this.game = game;
+	this.listeners = {};
+	this.name = "";
+
+}
+
+GameState.prototype.on = function(event, callback) {
+
+	this.listeners[ event ] = this.listeners[ event ] || [];
+	this.listeners[ event ].push( callback );
+
+}
+
+GameState.prototype.emit = function(event, params) {
+
+	var listeners = this.listeners[ event ] || [];
+
+	params = params || [];
+
+	for(var i = 0; i < listeners.length; i++) {
+
+		listeners[ i ].apply( this, params );
+
+	}
+
+}
+
+GameState.prototype.update = function() {
+
+	this.emit("update");
+
+}
+
+GameState.prototype.draw = function() {
+
+	this.emit("draw");
+
+}
+
+GameState.prototype.handleNetworkMessage = function(message) {
+
+	this.emit("networkMessage", [message]);
+
+}
+
+GameState.prototype.enter = function(prevState) {
+
+	this.emit("enter", [prevState]);
+
+}
+
+GameState.prototype.exit = function(nextState) {
+
+	this.emit("exit", [nextState]);
+
+}
+var Game = {
+	state: "starting",
+	playerTurn: 1,
+	thinkingColumn: 0,
+	localThinkingColumn: 0,
+	states: {}
+};
+
+var Player = {
+	name: "",
+	number: 0
+};
+
+var Screensaver = {
+	number: 40,
+	pieces: []
+};
+
+var Emotes = [];
+
+Game.settings = {
+	width: window.innerHeight - 40,
+	height: window.innerHeight - 40,
+	maxSize: 600,
+	boardColor: "hsl(60, 80%, 70%)",
+	playerColors: {
+		0: "#000",
+		1: "hsl(200, 100%, 50%)",
+		2: "hsl(0, 100%, 50%)"
+	},
+	font: "100 16px sans-serif",
+	serverURL: "wss://guarded-stream-8635.herokuapp.com"
+	//serverURL: "ws://localhost:5000"
+};
+
+//
+// Pre-frame
+//
+var preframe = addGameState("preframe");
+
+preframe.on("update", function() {
+
+	updateEmotes();
+
+});
+
+preframe.on("networkMessage", function(networkMessage) {
+
+	if(networkMessage.type == "chat") {
+
+		var player = networkMessage.data.player;
+		var name = networkMessage.data.name;
+		var text = networkMessage.data.text;
+
+		addPlayerMessage(text, player, name);
+
+	}
+
+});
+
+//
+// Post-frame
+//
+var postframe = addGameState("postframe");
+
+postframe.on("draw", function() {
+
+	drawEmotes();
+
+});
+
+
+//
+// Connecting to server state
+//
+var startingState = addGameState("starting");
+
+startingState.on("draw", function() {
+
+	this.game.context.clearRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	this.game.context.fillStyle = "#eee";
+	this.game.context.fillRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	drawScreensaver();
+
+});
+
+startingState.on("update", function() {
+
+	updateScreensaver();
+
+});
+
+startingState.on("enter", function() {
+
+	this.game.ui.chatInput.style.display = "none";
+
+	showModal( this.game.ui.joinModal );
+
+	addServerMessage("Welcome to Multiplayer Connect 4!");
+
+});
+
+startingState.on("exit", function() {
+
+	hideModal( this.game.ui.joinModal );
+
+});
+
+var connectingState = addGameState("connecting");
+
+connectingState.on("enter", function() {
+
+	addServerMessage("Let's find a server real quick...");
+
+});
+
+connectingState.on("draw", function() {
+
+	this.game.context.clearRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	this.game.context.fillStyle = "#eee";
+	this.game.context.fillRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	drawScreensaver();
+
+	drawMessage("Connecting to server");
+
+});
+
+connectingState.on("update", function() {
+
+	updateScreensaver();
+
+});
+
+//
+// Waiting for other player state
+//
+var waitingState = addGameState("waiting");
+
+waitingState.on("enter", function() {
+
+	addServerMessage("Ah! There it is!");
+
+	addServerMessage("Now we just need to wait until someone joins the game. (You can do this with another friend by asking him to got to the same link as this pen.)");
+
+});
+
+waitingState.on("draw", function() {
+
+	this.game.context.clearRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	this.game.context.fillStyle = "#eee";
+	this.game.context.fillRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	drawScreensaver();
+
+	drawMessage("Waiting on another player to connect");
+
+});
+
+waitingState.on("networkMessage", function( networkMessage ) {
+
+	if( networkMessage.type == "assignPlayer" ) {
+
+		Player.number = networkMessage.data.number;
+
+	}
+
+	if( networkMessage.type == "roomReady" ) {
+
+		setGameState("active");
+
+	}
+
+});
+
+waitingState.on("update", function() {
+
+	updateScreensaver();
+
+});
+
+//
+// Disconnected state
+//
+var disconnectedState = addGameState("disconnected");
+
+disconnectedState.on("enter", function(prevState) {
+
+	if(prevState.name == "connecting") {
+
+		addServerMessage("Oh no! There isn't a server anywhere!", "warning");
+
+	}else{
+
+		addServerMessage("Well. It looks like the other player left. You can click on the game to reconnect. Or you can go do something else. It's really up to you at this point.");
+
+	}
+
+	this.game.ui.chatInput.style.display = "none";
+
+});
+
+disconnectedState.on("draw", function() {
+
+	this.game.context.clearRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	this.game.context.fillStyle = "#eee";
+	this.game.context.fillRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	drawScreensaver();
+
+	drawMessage("Disconnected from the server :( - Click to reconnect!");
+
+});
+
+disconnectedState.on("update", function() {
+
+	updateScreensaver();
+
+});
+
+//
+// Active state
+//
+var activeState = addGameState("active");
+
+activeState.on("draw",  drawActiveGame );
+
+activeState.on("update", function() {
+
+	var mouseCell = Game.board.pointToCell( Game.mx, Game.my );
+
+	if(Game.playerTurn == Player.number && mouseCell.x != Game.localThinkingColumn) {
+
+		Game.localThinkingColumn = mouseCell.x;
+
+		Game.network.send( new NetworkMessage("thinkingColumn", { player : Player.number, column : Game.localThinkingColumn } ) );
+
+	}
+	
+});
+
+activeState.on("enter", function(prevState) {
+
+	if(prevState.name != "over") {
+
+		Game.network.send( new NetworkMessage("playerName", { player : Player.number, name : Player.name } ) );
+
+		this.game.ui.chatInput.style.display = null;
+
+	}
+
+});
+
+activeState.on("networkMessage", function(networkMessage) {
+
+	if( networkMessage.type == "startGame" ) {
+
+		Game.board = Board.build( networkMessage.data.board );
+		Game.playerTurn = networkMessage.data.turn;
+
+	}
+
+	if( networkMessage.type == "boardUpdate" ) {
+
+		Game.board = Board.build( networkMessage.data.board );
+
+	}
+
+	if( networkMessage.type == "playerUpdate" ) {
+
+		Game.playerTurn = networkMessage.data.player;
+
+	}
+
+	if( networkMessage.type == "thinkingColumn" ) {
+
+		var player = networkMessage.data.player;
+		var column = networkMessage.data.column;
+
+		if(player == Game.playerTurn) {
+
+			Game.thinkingColumn = column;
+
+		}
+
+	}
+
+	if( networkMessage.type == "win" ) {
+
+		Game.winner = networkMessage.data.winner;
+
+		setGameState("over");
+
+	}
+
+	if( networkMessage.type == "emote" ) {
+
+		var player = networkMessage.data.player;
+		var character = networkMessage.data.character;
+
+		emote( character, player );
+
+	}
+
+	if( networkMessage.type == "playerName" ) {
+
+		var player = networkMessage.data.player;
+		var name = networkMessage.data.name;
+
+		if(Player.number != player) {
+
+			addServerMessage( name + " just joined the game!" );
+
+		}
+
+	}
+
+});
+
+//
+// Game over state
+//
+var gameOverState = addGameState("over");
+
+gameOverState.on("draw", function() {
+
+	this.game.context.clearRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	this.game.context.fillStyle = "#eee";
+	this.game.context.fillRect(0, 0, this.game.canvas.width, this.game.canvas.height);
+
+	drawBoard( Game.board );
+
+	drawMessage("Game Over - Player " + Game.winner + " wins! Click to play again.");
+
+});
+
+gameOverState.on("networkMessage", function(networkMessage) {
+
+	if( networkMessage.type == "restart" ) {
+
+		addServerMessage("Starting a new game!");
+
+		setGameState("active");
+
+	}
+
+});
+
+function addGameState(name) {
+
+	Game.states[ name ] = new GameState( Game );
+
+	Game.states[ name ].name = name;
+
+	return Game.states[ name ];
+
+}
+
+function setGameState(name) {
+
+	var prevState = Game.states[ Game.state ];
+
+	var nextState = Game.states[ name ];
+
+	Game.state = name;
+
+	prevState.exit( nextState );
+
+	nextState.enter( prevState );
+
+}
+
+function setPlayerName(name) {
+
+	if(name && name.length) {
+
+		Player.name = name;
+
+		addServerMessage("Hey " + name + "!");
+
+		return true;
+
+	}
+
+	alert("Doesn't have to be a great name, just has to be a name. Any name.");
+
+	return false;
+
+}
+
+function showModal(modalUI) {
+
+	modalUI.style.display = "block";
+
+	Game.ui.modalOverlay.style.display = "block";
+
+}
+
+function hideModal(modalUI) {
+
+	modalUI.style.display = null;
+
+	Game.ui.modalOverlay.style.display = null;
+
+}
+
+function drawBoard(board) {
+	
+	for(var x = 0; x < board.width; x++) {
+	
+		for(var y = 0; y < board.height; y++) {
+			
+			var value = board.getSpace(x, y);
+			
+			drawCell(board, x, y);
+			
+			if(value != 0) drawPiece(board, x, y, value);
+			
+		}
+	
+	}
+	
+}
+
+function drawCell(board, x, y) {
+	
+	var cw = Game.canvas.width / board.width;
+	var ch = Game.canvas.height / board.height;
+	var hcw = cw / 2;
+	var hch = ch / 2;
+	
+	Game.context.fillStyle = Game.settings.boardColor;
+	Game.context.fillRect(x * cw, y * ch, cw, ch);
+	
+	Game.context.save();
+	Game.context.globalCompositeOperation = "destination-out";
+	drawPiece(board, x, y, 0);
+	Game.context.restore();
+	
+}
+
+function drawPiece(board, x, y, value) {
+	
+	var cw = Game.canvas.width / board.width;
+	var ch = Game.canvas.height / board.height;
+	var hcw = cw / 2;
+	var hch = ch / 2;  
+	var color = Game.settings.playerColors[ value ];
+	
+	Game.context.fillStyle = color;
+	Game.context.beginPath();
+	Game.context.arc(x * cw + hcw, y * ch + hch, hcw / 1.5, 0, 2 * Math.PI, false);
+	Game.context.fill();
+	
+}
+
+function drawActiveGame() {
+
+	Game.context.clearRect(0, 0, Game.canvas.width, Game.canvas.height);
+	
+	Game.context.fillStyle = "#ccc";
+	Game.context.fillRect(0, 0, Game.canvas.width, Game.canvas.height);
+	
+	drawBoard( Game.board );
+
+	//
+	// Thinking piece
+	//
+	Game.context.save();
+	Game.context.globalCompositeOperation = "destination-over";
+	drawPiece(Game.board, Game.thinkingColumn, -0.25, Game.playerTurn);
+	Game.context.restore();
+
+	if(Game.playerTurn != Player.number) {
+
+		drawMessage("Waiting for the other player to play their turn.");
+
+	}
+
+	//
+	// Emotes
+	//
+	drawEmotes();
+
+}
+
+function updateEmotes() {
+
+	for(var i = 0; i < Emotes.length; i++) {
+
+		var emote = Emotes[i];
+
+		updateEmote( emote );
+
+		if(emote.life <= 0) Emotes.splice(i, 1);
+
+	}
+
+}
+
+function drawEmotes() {
+
+	for(var i = 0; i < Emotes.length; i++) {
+
+		drawEmote( Emotes[i] );
+
+	}
+
+}
+
+function drawMessage(text, color) {
+
+	var textSize = Game.context.measureText( text );
+	var p = 10;
+	var cx = Game.canvas.width / 2;
+	var cy = Game.canvas.height / 2;
+	var fontSize = 16;
+
+	var boxWidth = textSize.width + (p * 2);
+	var boxHeight = fontSize + (p * 2);
+
+	Game.context.save();
+
+	Game.context.translate(cx - boxWidth / 2, cy - boxHeight / 2);
+
+	Game.context.fillStyle = color || "rgba(0, 0, 0, 0.8)";
+	Game.context.fillRect(0, 0, boxWidth, boxHeight);
+
+	Game.context.fillStyle = "#fff";
+	Game.context.textBaseline = "top";
+	Game.context.fillText(text, p, p);
+
+	Game.context.restore();
+
+}
+
+function buildChatMessage(chatText, chatSender) {
+
+	var fragment = document.createDocumentFragment();
+
+	var message = document.createElement("div");
+	message.classList.add("message");
+
+	if(chatSender) {
+
+		var sender = document.createElement("span");
+		sender.classList.add("message-sender");
+		sender.innerText = chatSender;
+
+		message.appendChild(sender);
+
+	}
+
+	var text = document.createElement("p");
+	text.innerText = chatText;
+
+	message.appendChild(text);
+
+	fragment.appendChild(message);
+
+	return fragment;
+
+}
+
+function addChatMessage( message ) {
+
+	Game.ui.chat.appendChild( message );
+
+	Game.ui.chat.scrollTop = Game.ui.chat.scrollHeight;
+
+}
+
+function addServerMessage(text, messageClass) {
+
+	var message = buildChatMessage(text);
+
+	message.querySelector(".message").classList.add("server-message");
+
+	if(messageClass) message.querySelector(".message").classList.add( messageClass );
+
+	addChatMessage( message );
+
+}
+
+function addPlayerMessage(text, playerNumber, playerName) {
+
+	var message = buildChatMessage(text, "@" + playerName);
+
+	message.querySelector(".message-sender").style.color = Game.settings.playerColors[ playerNumber ];
+
+	addChatMessage( message );
+
+}
+
+function emote(character, player) {
+
+	Emotes.push( makeEmote(character, player) );
+
+}
+
+function makeEmote(character, player) {
+
+	var x = (player == Player.number) ? (Game.canvas.width / 4) :
+										(Game.canvas.width * 3 / 4);
+
+	var emote = {
+		character: character,
+		x: x,
+		y: Game.canvas.height / 2,
+		dy: 1,
+		life: 90
+	};
+
+	return emote;
+
+}
+
+function updateEmote(emote) {
+
+	emote.y += emote.dy;
+	emote.life--;
+
+}
+
+function drawEmote(emote) {
+
+	Game.context.save();
+	Game.context.font = "64px sans-serif";
+	Game.context.textAlign = "center";
+	Game.context.globalAlpha = (emote.life / 90);
+	Game.context.fillText( emote.character, emote.x, emote.y );
+	Game.context.restore();
+
+	Game.context.font = Game.settings.font;
+
+}
+
+function initScreensaver() {
+
+	for(var i = 0; i < Screensaver.number; i++) {
+
+		Screensaver.pieces.push({
+			x : Game.canvas.width * Math.random(),
+			y : Game.canvas.height * Math.random(),
+			player : (i % 2) + 1,
+			speed : Math.random() * 3 + 1,
+			size : Game.canvas.width / 10
+		});
+
+	}
+
+}
+
+function updateScreensaver() {
+
+	for(var i = 0; i < Screensaver.number; i++) {
+
+		var piece = Screensaver.pieces[ i ];
+
+		piece.y += piece.speed;
+
+		if(piece.y > Game.canvas.height + piece.size) piece.y = -Math.random() * 100;
+
+	}
+
+}
+
+function drawScreensaver() {
+
+	for(var i = 0; i < Screensaver.number; i++) {
+
+		var piece = Screensaver.pieces[ i ];
+
+		var color = Game.settings.playerColors[ piece.player ];
+	
+		Game.context.fillStyle = color;
+		Game.context.beginPath();
+		Game.context.arc(piece.x, piece.y, piece.size / 2, 0, 2 * Math.PI, false);
+		Game.context.fill();
+
+	}
+
+}
+
+function init() {
+
+	//
+	// Game
+	//
+	Game.network = new Net( Game.settings.serverURL );
+
+	//
+	// Init UI
+	//
+	Game.ui = {};
+	Game.ui.emoteMenu = document.querySelector("#emote-menu");
+	Game.ui.modalOverlay = document.querySelector("#modal-overlay");
+	Game.ui.joinModal = document.querySelector("#join-modal");
+	Game.ui.chat = document.querySelector("#game-chat");
+	Game.ui.chatInput = document.querySelector("#chat-input");
+	
+	//
+	// Init graphics
+	//
+	Game.canvas = document.querySelector("#game-canvas");
+	Game.canvas.width = Math.min( Game.settings.width, Game.settings.height, Game.settings.maxSize );
+	Game.canvas.height = Math.min( Game.settings.width, Game.settings.height, Game.settings.maxSize );
+	Game.context = Game.canvas.getContext("2d");
+	Game.context.font = Game.settings.font;
+
+	initScreensaver();
+	
+	//
+	// Event Listeners
+	//
+	Game.canvas.addEventListener("click", onBoardClick);
+	Game.canvas.addEventListener("mousemove", onBoardMouseMove);
+
+	Game.network.on("connect", onNetworkConnected);
+	Game.network.on("disconnect", onNetworkDisconnected);
+	Game.network.on("message", onNetworkMessage);
+
+	Game.ui.chatInput.addEventListener("keypress", onChatKeyPress);
+
+	delegateEvent("click", Game.ui.emoteMenu, "button", onEmoteButton);
+	delegateEvent("click", Game.ui.joinModal, "#join-button", onJoinButtonClick);
+
+	setGameState("starting");
+	
+	//
+	// Start game loop
+	//
+	loop();
+	
+}
+
+function loop() {
+	
+	requestAnimationFrame( loop );
+	
+	update();
+	
+	draw();
+	
+}
+
+function update() {
+
+	var gameState = Game.states[ Game.state ];
+
+	preframe.update();
+
+	gameState.update();
+
+	postframe.update();
+	
+}
+
+function draw() {
+
+	var gameState = Game.states[ Game.state ];
+
+	preframe.draw();
+
+	gameState.draw();
+
+	postframe.draw();
+	
+}
+
+function delegateEvent(event, root, selector, callback) {
+
+	root.addEventListener(event, function(e) {
+
+		if(e.target.matches(selector)) {
+
+			callback.call(e.target, e);
+
+		}
+
+	});
+
+}
+
+function onNetworkConnected() {
+
+	setGameState("waiting");
+
+}
+
+function onNetworkDisconnected() {
+
+	setGameState("disconnected");
+
+}
+
+function onNetworkMessage(message) {
+
+	var gameState = Game.states[ Game.state ];
+
+	preframe.handleNetworkMessage(message);
+	gameState.handleNetworkMessage(message);
+	postframe.handleNetworkMessage(message);
+
+}
+
+function onEmoteButton(e) {
+
+	if(Game.state == "active") {
+
+		Game.network.send( new NetworkMessage("emote", { player : Player.number, character : e.target.innerHTML } ) );
+
+	}else{
+
+		emote( e.target.innerHTML, Player.number );
+
+	}
+
+}
+
+function onJoinButtonClick(e) {
+
+	if(Game.state == "starting") {
+
+		var success = setPlayerName( Game.ui.joinModal.querySelector("#display-name-input").value );
+
+		if(success) {
+
+			Game.network.connect();
+
+			setGameState("connecting");
+
+			return;
+
+		}
+
+	}
+
+}
+
+function onChatKeyPress(e) {
+
+	var text = e.target.value.trim();
+
+	if(e.keyCode == 13 && text != "") {
+
+		e.preventDefault();
+
+		Game.network.send( new NetworkMessage("chat", { player : Player.number, text : text } ) );
+
+		Game.ui.chatInput.value = "";
+
+	}
+
+}
+
+function onBoardClick(e) {
+
+	if(Game.state == "active") {
+	
+		var x = e.offsetX / Game.canvas.width;
+		var y = e.offsetY / Game.canvas.height;
+		
+		var p = Game.board.pointToCell(x, y);
+
+		Game.network.send( new NetworkMessage("makePlay", { player : Player.number, column : p.x }) );
+
+	}
+
+	if(Game.state == "over") {
+
+		Game.network.send( new NetworkMessage("restart", { player : Player.number } ) );
+
+	}
+
+	if(Game.state == "disconnected") {
+    
+	    Game.network.disconnect();
+
+	    Game.network.connect();
+	    
+	    setGameState("connecting");
+
+	}
+	
+}
+
+function onBoardMouseMove(e) {
+
+	if(Game.state != "active") return;
+	
+	Game.mx = e.offsetX / Game.canvas.width;
+	Game.my = e.offsetY / Game.canvas.height;
+	
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+	
+	init();
+	
+});
+</script>
